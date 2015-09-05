@@ -20,6 +20,7 @@ var config = require('./config');
 // possible chatrooms a client can join later
 var channelNames = config.channels;
 
+var clients = {};
 
 // var channels = new Set();
 var prepare = function() {
@@ -30,10 +31,13 @@ var prepare = function() {
         console.log("Someone just joined chat.");
 
         socket.on('message', function(message) {
+            console.log("Received Message:");
+            console.log(message);
             socket.broadcast.emit('message', message);
         });
 
         socket.on('chat', function(message) {
+            console.log("Received Chat: " + message)
            socket.broadcast.emit('chat', message);
         });
 
@@ -41,21 +45,36 @@ var prepare = function() {
             var room = data['room'];
             var user = data['user'];
 
-            var numClients = io.sockets.clients(room).length;
+            console.log("Someone joined chat: " + JSON.stringify(data));
+            // console.log(JSON.stringify(io));
+            // var numClients = io.sockets.clients(room).length;
+            var client = clients[room];
+            var numClients = 0;
+            if (client) {
+                numClients = client.length;
+            }
+            // var numClients = io.adapter;
+            // [room];
+            console.log(numClients)
+            // numClient = Object.keys(room).length;
 
             if (numClients === 0) {
                 socket.join(room);
                 socket.emit('created', room);
+                clients[room] = [user];
             } else if (numClients === 1) {
                 io.sockets.in(room).emit('join', data);
                 socket.join(room);
                 socket.emit('joined', room);
+                client.push(user)
             } else {
                 socket.emit('full', room);
             }
 
+            console.log(clients);
+
         });
-    })
+    });
 
     // chat.on('connection', function(socket) {
     //     console.log("Someone just joined chat.")
@@ -81,11 +100,13 @@ var prepare = function() {
     // });
 };
 
+prepare();
+
 var channels = {
     "first": [],
 };
 
-configureChannel('first');
+// configureChannel('first');
 
 
 app.set('views', __dirname + '/views');
