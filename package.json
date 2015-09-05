@@ -1,0 +1,21 @@
+{
+  "name": "Timeless",
+  "version": "1.0.0",
+  "description": "A backend server for real-time video calls",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git"
+  },
+  "author": "Osama Sakhi",
+  "license": "GPL 3.0",
+  "dependencies": {
+    "express": "^4.12.3",
+    "jade": "^1.9.2",
+    "socket.io": "^1.3.5",
+    "socket.io-stream": "^0.8.0",
+    "socketio-file-upload": "^0.3.3"
+  }
+}
