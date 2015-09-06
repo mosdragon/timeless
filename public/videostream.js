@@ -4,6 +4,7 @@ var createdRoom = false;
 var isStarted = false;
 var canSend = false;
 var isFirefox = false;
+var joinedChannel = false;
 var peer_connection;
 var socket;
 var localVideoStream;
@@ -39,28 +40,44 @@ var createConnection = function() {
     });
 
     socket.on('created', function(room) {
-      console.log('Created room ' + room);
-      createdRoom = true;
+        console.log('Created room ' + room);
+        createdRoom = true;
+        joinedChannel = true;
+    });
+
+    socket.on('joined', function(room) {
+        console.log('Created room ' + room);
+        joinedChannel = true;
     });
 
     socket.on('message', function(message) {
+        console.log("socket on message");
         if (message === 'Got user media') {
-            maybeStart();
+            console.log("Got user media");
+            beginInteraction();
+
         } else if (message.type === 'offer') {
-            // if (createdRoom && !isStarted) {
-            //     maybeStart();
-            // }
-            pc.setRemoteDescription(new getSessionDescription(message));
+            console.log("socket message received: offer")
+            if (!createdRoom && !isStarted) {
+                beginInteraction();
+            }
+            peer_connection.setRemoteDescription(new getSessionDescription(message));
             doAnswer();
+
         } else if (message.type === 'answer' && isStarted) {
-            pc.setRemoteDescription(new getSessionDescription(message));
+            console.log("socket message received: answer")
+            peer_connection.setRemoteDescription(new getSessionDescription(message));
+
         } else if (message.type === 'candidate' && isStarted) {
+            console.log("socket message received: candidate")
             var candidate = getIceCandidate({
                 sdpMLineIndex: message.label,
                 candidate: message.candidate
             });
-            pc.addIceCandidate(candidate);
+            peer_connection.addIceCandidate(candidate);
+
         } else if (message === 'bye' && isStarted) {
+            console.log("socket message received: bye")
             //handleRemoteHangup();
         }
     });
@@ -68,16 +85,17 @@ var createConnection = function() {
 
 function handleUserMedia(stream) {
 
-  console.log('Adding local stream.');
-  localVideo = $("#self");
-  localVideo.src = window.URL.createObjectURL(stream);
-  localVideoStream = stream;
-  sendMessage('Got user media');
-  $('#localimg').hide();
-  localVideo.show();
-  // if (isInitiator) {
-  //   maybeStart();
-  // }
+    console.log('Adding local stream.');
+    localVideo = $("#self");
+    localVideo.src = window.URL.createObjectURL(stream);
+    localVideoStream = stream;
+    sendMessage('Got user media');
+    $('#localimg').hide();
+    localVideo.show();
+
+    if (joinedChannel) {
+        beginInteraction();
+    }
 }
 
 function handleUserMediaError(error) {
@@ -107,8 +125,6 @@ window.addEventListener("DOMContentLoaded", function() {
         video.play();
         localVideoStream = stream;
         console.log(stream);
-        createConnection();
-        handleUserMedia(stream);
     }
 
     // Put video listeners into place
@@ -117,8 +133,7 @@ window.addEventListener("DOMContentLoaded", function() {
         navigator.getUserMedia(videoObj, function(stream) {
             video.src = stream;
             video.play();
-            createConnection();
-            handleUserMedia(stream);
+            localVideoStream = stream;
         }, handleUserMediaError);
         console.log('getUserMedia');
 
@@ -142,6 +157,11 @@ window.addEventListener("DOMContentLoaded", function() {
         }
         console.log(video);
         console.log(video.src);
+        createConnection();
+        var data = {'user': 'mosdragon', 'room': '500'};
+        console.log(data);
+        socket.emit('join', data);
+        handleUserMedia(localVideoStream);
         beginInteraction();
         // createConnection();
         // socket.emit('join', '210')
@@ -237,16 +257,25 @@ function sendChat(chat) {
 }
 
 function beginInteraction() {
-    var data = {'user': 'mosdragon', 'room': '500'};
-    console.log(data);
-    socket.emit('join', data);
 
-    createPeerConnection(function() {
-        peer_connection.addStream(localVideoStream);
-        if (createdRoom && !isStarted) {
-            doCall();
-        }
-    });
+    if (!isStarted && localVideoStream && joinedChannel) {
+        createPeerConnection(function() {
+            peer_connection.addStream(localVideoStream);
+
+            if (createdRoom && !isStarted) {
+                doCall();
+            }
+
+            isStarted = true;
+        });
+    }
+
+    // createPeerConnection(function() {
+    //     peer_connection.addStream(localVideoStream);
+    //     if (createdRoom && !isStarted) {
+    //         doCall();
+    //     }
+    // });
 }
 
 function doCall() {
@@ -255,98 +284,98 @@ function doCall() {
 }
 
 function doAnswer() {
-  console.log('Sending answer to peer.');
-  if(isFirefox) {
-    pc.createAnswer(setLocalAndSendMessage, handleCreateAnswerError, sdpConstraints);
-  }
-  else {
-    pc.createAnswer(setLocalAndSendMessage, null, sdpConstraints);
-  }
+    console.log('Sending answer to peer.');
+    if(isFirefox) {
+        peer_connection.createAnswer(setLocalAndSendMessage, handleCreateAnswerError, sdpConstraints);
+    }
+    else {
+        peer_connection.createAnswer(setLocalAndSendMessage, null, sdpConstraints);
+    }
 }
 
 function setLocalAndSendMessage(sessionDescription) {
-  // Set Opus as the preferred codec in SDP if Opus is present.
-  sessionDescription.sdp = preferOpus(sessionDescription.sdp);
-  peer_connection.setLocalDescription(sessionDescription);
-  sendMessage(sessionDescription);
+    // Set Opus as the preferred codec in SDP if Opus is present.
+    sessionDescription.sdp = preferOpus(sessionDescription.sdp);
+    peer_connection.setLocalDescription(sessionDescription);
+    sendMessage(sessionDescription);
 }
 
 function handleCreateAnswerError(error) {
-  console.log('createAnswer() error: ', e);
+    console.log('createAnswer() error: ', e);
 }
 
 // Helpers for CODEC stuff
 // Set Opus as the default audio codec if it's present.
 function preferOpus(sdp) {
-  var sdpLines = sdp.split('\r\n');
-  var mLineIndex;
-  // Search for m line.
-  for (var i = 0; i < sdpLines.length; i++) {
-    if (sdpLines[i].search('m=audio') !== -1) {
-      mLineIndex = i;
-      break;
+    var sdpLines = sdp.split('\r\n');
+    var mLineIndex;
+    // Search for m line.
+    for (var i = 0; i < sdpLines.length; i++) {
+        if (sdpLines[i].search('m=audio') !== -1) {
+            mLineIndex = i;
+            break;
+        }
     }
-  }
-  if (mLineIndex === null) {
+    if (mLineIndex === null) {
+        return sdp;
+    }
+
+    // If Opus is available, set it as the default in m line.
+    for (i = 0; i < sdpLines.length; i++) {
+        if (sdpLines[i].search('opus/48000') !== -1) {
+            var opusPayload = extractSdp(sdpLines[i], /:(\d+) opus\/48000/i);
+            if (opusPayload) {
+                sdpLines[mLineIndex] = setDefaultCodec(sdpLines[mLineIndex], opusPayload);
+            }
+            break;
+        }
+    }
+
+    // Remove CN in m line and sdp.
+    sdpLines = removeCN(sdpLines, mLineIndex);
+
+    sdp = sdpLines.join('\r\n');
     return sdp;
-  }
-
-  // If Opus is available, set it as the default in m line.
-  for (i = 0; i < sdpLines.length; i++) {
-    if (sdpLines[i].search('opus/48000') !== -1) {
-      var opusPayload = extractSdp(sdpLines[i], /:(\d+) opus\/48000/i);
-      if (opusPayload) {
-        sdpLines[mLineIndex] = setDefaultCodec(sdpLines[mLineIndex], opusPayload);
-      }
-      break;
-    }
-  }
-
-  // Remove CN in m line and sdp.
-  sdpLines = removeCN(sdpLines, mLineIndex);
-
-  sdp = sdpLines.join('\r\n');
-  return sdp;
 }
 
 function extractSdp(sdpLine, pattern) {
-  var result = sdpLine.match(pattern);
-  return result && result.length === 2 ? result[1] : null;
+    var result = sdpLine.match(pattern);
+    return result && result.length === 2 ? result[1] : null;
 }
 
 // Set the selected codec to the first in m line.
 function setDefaultCodec(mLine, payload) {
-  var elements = mLine.split(' ');
-  var newLine = [];
-  var index = 0;
-  for (var i = 0; i < elements.length; i++) {
-    if (index === 3) { // Format of media starts from the fourth.
-      newLine[index++] = payload; // Put target payload to the first.
+    var elements = mLine.split(' ');
+    var newLine = [];
+    var index = 0;
+    for (var i = 0; i < elements.length; i++) {
+        if (index === 3) { // Format of media starts from the fourth.
+            newLine[index++] = payload; // Put target payload to the first.
+        }
+        if (elements[i] !== payload) {
+            newLine[index++] = elements[i];
+        }
     }
-    if (elements[i] !== payload) {
-      newLine[index++] = elements[i];
-    }
-  }
-  return newLine.join(' ');
+    return newLine.join(' ');
 }
 
 // Strip CN from sdp before CN constraints is ready.
 function removeCN(sdpLines, mLineIndex) {
-  var mLineElements = sdpLines[mLineIndex].split(' ');
-  // Scan from end for the convenience of removing an item.
-  for (var i = sdpLines.length - 1; i >= 0; i--) {
-    var payload = extractSdp(sdpLines[i], /a=rtpmap:(\d+) CN\/\d+/i);
-    if (payload) {
-      var cnPos = mLineElements.indexOf(payload);
-      if (cnPos !== -1) {
-        // Remove CN payload from m line.
-        mLineElements.splice(cnPos, 1);
-      }
-      // Remove CN line in sdp
-      sdpLines.splice(i, 1);
+    var mLineElements = sdpLines[mLineIndex].split(' ');
+    // Scan from end for the convenience of removing an item.
+    for (var i = sdpLines.length - 1; i >= 0; i--) {
+        var payload = extractSdp(sdpLines[i], /a=rtpmap:(\d+) CN\/\d+/i);
+        if (payload) {
+            var cnPos = mLineElements.indexOf(payload);
+            if (cnPos !== -1) {
+            // Remove CN payload from m line.
+            mLineElements.splice(cnPos, 1);
+            }
+            // Remove CN line in sdp
+            sdpLines.splice(i, 1);
+        }
     }
-  }
 
-  sdpLines[mLineIndex] = mLineElements.join(' ');
-  return sdpLines;
+    sdpLines[mLineIndex] = mLineElements.join(' ');
+    return sdpLines;
 }
